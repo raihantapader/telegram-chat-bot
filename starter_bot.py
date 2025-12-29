@@ -5,6 +5,7 @@ import openai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 from dotenv import load_dotenv
+from telegram import Update
 
 # Load environment variables (API keys)
 load_dotenv()
@@ -29,7 +30,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Send a message with the unique Test ID and instructions
     await update.message.reply_text(
         f"✅ *Reply Speed Test Created!* \n\n"
-        f"Test ID: [{test_id}]({test_id_link})\n\n"
+        f"Test ID: `{test_id}`\n\n"
+       # f"Test ID: [{test_id}]({test_id_link})\n\n"
         f"Use this ID with the other bots so they all log the same session.\n\n"
         f"👉 Next steps:\n"
         f"1️⃣ Open each customer bot:\n\n"
@@ -57,7 +59,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"TestID {test_id} is confirmed. Start chatting.")
 
     else:
-        # Respond using GPT-3 model for a sales assistant or customer bot
         test_id = update.message.chat.id  # Use Telegram chat ID as the TestID temporarily
         if test_id not in conversation_memory:
             await update.message.reply_text(

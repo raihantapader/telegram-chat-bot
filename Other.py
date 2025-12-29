@@ -1,92 +1,95 @@
-import os
 import asyncio
-import nest_asyncio  # Import nest_asyncio to allow nested event loops
-from dotenv import load_dotenv
+import os
+import uuid
+import openai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-import openai
+from dotenv import load_dotenv
+from telegram import Update
 
-# Apply nest_asyncio to allow nested event loops, which is required for environments like Jupyter
-nest_asyncio.apply()
 
-# Load environment variables from the .env file
+# Load environment variables (API keys)
 load_dotenv()
+Telegram_Bot_Token = os.getenv("STARTER_BOT_TOKEN")
+openai.api_key = os.getenv("aluraagency_OPEPNAI_API_KEY")
+ 
 
-# Access API keys using os.getenv()
-STARTER_BOT_TOKEN = os.getenv("TELEGRAM_BOT_5_TOKEN")
-OPENAI_API_KEY = os.getenv("aluraagency_OPEPNAI_API_KEY")
+conversation_memory = {}  # Store conversation history based on Test ID
 
-# Set OpenAI API key
-openai.api_key = OPENAI_API_KEY
 
-# Define the GPT response function
-async def gpt_response(user_message):
-    response = openai.ChatCompletion.create(
-        model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:CrGNWrcX",  # Make sure this is the correct model ID
-        messages=[
-            {"role": "system", "content":""" You are an expert helpful general customer assistant who talks with a sales assistant.
-Your role is to behave like a real customer who interacts with a sales executive to know information about product and services.
-You ask natural, realistic, and varied questions related to products and services, and you respond as a customer would in a real-world sales scenario. """},
-            {"role": "user", "content": user_message}
-        ],
-        temperature=0.7,
-        max_tokens=150
-    )
-    return response['choices'][0]['message']['content']
+customer_bots_usernames = ["@Cust0m3rBot"]
 
-# Command handlers
+
+# Function to start the conversation and generate a unique Test 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Generate a unique Test ID (e.g., FJF2TD)
+    test_id = str(uuid.uuid4().hex[:6]).upper()  # Generate a 6-character Test ID
+    conversation_memory[test_id] = []  # Initialize conversation history for this Test ID
+    
+    
+    # Get the starter bot's username correctly
+    starter_bot = await context.bot.get_me()
+    starter_bot_username = starter_bot.username
+    
+    # Create the clickable Test ID link for the user (other bots will also get this ID)
+    bot_link = f"https://t.me/{starter_bot_username}?start={test_id}"
+
+    # Send a message with the unique Test ID and instructions
     await update.message.reply_text(
-        "Hello! Welcome to the Bot. Please write /help to see the commands available.")
+        f"✅ *Reply Speed Test Created!* \n\n"
+        f"Test ID: `{test_id}`\n\n"
+       # f"Test ID: [{test_id}]({test_id_link})\n\n"
+        f"Use this ID with the other bots so they all log the same session.\n\n"
+        f"👉 Next steps:\n"
+        f"1️⃣ Open each customer bot:\n\n"
+        f"• @Cust0m7rBot\n"
+        f"• @Cust0m6rBot\n"
+        f"• @Cust0m5rBot\n"
+        f"• @Cust0m4rBot\n"
+        f"• @Cust0m3rBot\n\n"
+        f"2️⃣ In each bot, send: [/start {test_id}]({bot_link})\n\n"
+        f"3️⃣ Then reply as fast as you can. The bots will handle the timing.\n\n"
+        f"Later, we can centralize stats from all bots using this TestID.\n\n"
+        f"Happy testing . . . 🚀"
+    , parse_mode="Markdown" )
+    
+    
+     # Send the Test ID to each predefined customer bot
+    for bot_username in customer_bots_usernames:
+        # Create the Test ID message for each customer bot
+        test_id_message = f"Hey there! Use this Test ID: `{test_id}` to start your conversation with Salesperson.\n\n" \
+                          f"Start Conversation . . . 🚀\n\n" 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(""" Available Commands:
-   
-    /linkedin - To get the LinkedIn profile URL
-    /facebook - To get Facebook profile URL """)
-
-# Command responses
-async def linkedin_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("LinkedIn URL => https://www.linkedin.com/in/raihan-tapader06/")
-
-
-async def facebook_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Facebook URL => https://www.facebook.com/raihantapader06/")
-
-
-# Handle user messages
+# Handle incoming message and generate responses using the GPT model
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text  # Get the message from the user
-    bot_response = await gpt_response(user_message)
-    await update.message.reply_text(bot_response)
+    user_message = update.message.text 
+    
+    # Get the Test ID from the message (if /start was used)
+    if update.message.text.startswith('/newtest'):
+        test_id = update.message.text.split(" ")[1]
+        if test_id not in conversation_memory:
+            await update.message.reply_text(f"Invalid TestID. Please use a valid TestID.")
+            return
+        await update.message.reply_text(f"TestID {test_id} is confirmed. Start chatting.")
 
-# Handle unknown commands
-async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"Sorry '{update.message.text}' is not a valid command")
-
-async def unknown_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"Sorry I can't recognize you, you said '{update.message.text}'")
-
-# Main function to initialize the bot
+    else:
+        test_id = update.message.chat.id  # Use Telegram chat ID as the TestID temporarily
+        if test_id not in conversation_memory:
+            await update.message.reply_text(
+            f"Hey!  I'm the Reply Test Starter Bot.\n\n"
+            f"Use /newtest to create a new reply test conversation.")
+            return
+       
+# Initialize the bot application
 def main():
-    # Build the bot application
-    application = ApplicationBuilder().token(STARTER_BOT_TOKEN).build()
 
-    # Command Handlers
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('help', help_command))
-    application.add_handler(CommandHandler('linkedin', linkedin_url))
-    application.add_handler(CommandHandler('facebook', facebook_url))
+    _bot_application = ApplicationBuilder().token(Telegram_Bot_Token).build()
 
-    # Message Handlers for unknown commands and text
-    application.add_handler(MessageHandler(filters.COMMAND, unknown))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    _bot_application.add_handler(CommandHandler('newtest', start))
+    _bot_application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Start the bot
     print("Bot polling started...")
-    application.run_polling(drop_pending_updates=True, poll_interval=1)
+    _bot_application.run_polling(drop_pending_updates=True, poll_interval=1)
 
 if __name__ == '__main__':
     main()
