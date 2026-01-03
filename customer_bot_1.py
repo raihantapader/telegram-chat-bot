@@ -13,7 +13,7 @@ openai.api_key = os.getenv("aluraagency_OPEPNAI_API_KEY")
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Send a welcoming message to initiate the conversation
     await update.message.reply_text(
-        "Hello! I am your sales assistant. How can I help you today? Feel free to ask me anything about our products or services!"
+        "Hi, I'm interested in purchasing a new laptop. Can you help me choose the right one?"
     )
 
 # Handle incoming customer messages

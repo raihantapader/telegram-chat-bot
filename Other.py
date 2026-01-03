@@ -65,7 +65,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text 
     
     # Get the Test ID from the message (if /start was used)
-    if update.message.text.startswith('/newtest'):
+    if update.message.text.startswith('/ newtest'):
         test_id = update.message.text.split(" ")[1]
         if test_id not in conversation_memory:
             await update.message.reply_text(f"Invalid TestID. Please use a valid TestID.")
@@ -93,3 +93,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+a
