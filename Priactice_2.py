@@ -9,7 +9,9 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_1_TOKEN")
 openai.api_key = os.getenv("aluraagency_OPEPNAI_API_KEY")
 
-# Function to initiate the conversation (starting point for the customer interaction)
+CONVERSATION_ID = "563964"
+customer_bot = "CustomerBot_1"
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Send a welcoming message to initiate the conversation
     await update.message.reply_text(

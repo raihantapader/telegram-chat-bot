@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from customer_bot import run_customer_bot
+from customer_bots import run_customer_bot
 
 load_dotenv()
 
