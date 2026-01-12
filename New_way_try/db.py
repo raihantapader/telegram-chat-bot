@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MONGODB_URI = os.environ["MONGODB_URI"]
-MONGODB_DB = os.environ.get("MONGODB_DB", "sales_tests")
+MONGODB_DB = os.environ.get["MONGODB_DB"]
 
 client = AsyncIOMotorClient(MONGODB_URI)
 db = client[MONGODB_DB]

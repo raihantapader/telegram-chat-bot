@@ -12,11 +12,11 @@ load_dotenv()
 STARTER_BOT_TOKEN = os.environ["STARTER_BOT_TOKEN"]
 
 CUST_USERNAMES = [
-    os.environ["CUST1_USERNAME"],
-    os.environ["CUST2_USERNAME"],
-    os.environ["CUST3_USERNAME"],
-    os.environ["CUST4_USERNAME"],
-    os.environ["CUST5_USERNAME"],
+    os.environ["CUST_1_USERNAME"],
+    os.environ["CUST_2_USERNAME"],
+    os.environ["CUST_3_USERNAME"],
+    os.environ["CUST_4_USERNAME"],
+    os.environ["CUST_5_USERNAME"],
 ]
 
 async def newtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -51,7 +51,8 @@ def run_starter():
     app = ApplicationBuilder().token(STARTER_BOT_TOKEN).build()
     app.add_handler(CommandHandler("newtest", newtest))
     app.post_init = lambda _: ensure_indexes()
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True, poll_interval=1)
+    
 
 if __name__ == "__main__":
     run_starter()

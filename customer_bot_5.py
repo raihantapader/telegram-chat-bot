@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_5_TOKEN")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_1_TOKEN")
 OPENAI_API_KEY = os.getenv("aluraagency_OPEPNAI_API_KEY")
 
 # Configure OpenAI

@@ -5,7 +5,6 @@ import openai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 from dotenv import load_dotenv
-from telegram import Update
 
 # Load environment variables (API keys)
 load_dotenv()
@@ -13,7 +12,7 @@ Telegram_Bot_Token = os.getenv("STARTER_BOT_TOKEN")
 OPEPNAI_API_KEY = os.getenv("aluraagency_OPEPNAI_API_KEY")
 openai.api_key = OPEPNAI_API_KEY
 
-conversation_memory = {}  # Store conversation history based on Test ID
+conversation_memory = {}  
 
 # Function to start the conversation and generate a unique Test 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):

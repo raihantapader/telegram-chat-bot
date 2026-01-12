@@ -21,7 +21,7 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_1_TOKEN")
 openai.api_key = os.getenv("aluraagency_OPEPNAI_API_KEY")
 
-CONVERSATION_ID = "281101"
+CONVERSATION_ID = "563964"
 VA_bot = "@raihantapader"
 
 # Store conversation history per chat
@@ -554,11 +554,7 @@ async def gpt_customer_response(salesperson_message, chat_id):
     try:
         # Call OpenAI API with full conversation history
         response = openai.ChatCompletion.create(
-            
-            # model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:CrGNWrcX",
-             #  model="gpt-3.5-turbo-0125", 
-            model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cvi4Yd6v", ## Both will be same fine tuned model
-            #model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cr1QtYEb",
+            model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cr1QtYEb",
             messages=conv_history['messages'],
             temperature=0.85,
             max_tokens=150,
@@ -593,10 +589,7 @@ async def gpt_customer_response(salesperson_message, chat_id):
             
             # Regenerate response
             response = openai.ChatCompletion.create(
-                # model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:CrGNWrcX",
-             #  model="gpt-3.5-turbo-0125", 
-                model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cvi4Yd6v", ## Both will be same fine tuned model
-              #  model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cr1QtYEb",
+                model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cr1QtYEb",
                 messages=conv_history['messages'],
                 temperature=0.85,
                 max_tokens=150,
