@@ -21,19 +21,22 @@ app = FastAPI()
 
 class Message(BaseModel):
     conversation_id: str
+    bot: str
     role: str  
     text: str
-    chat_id: int
+    timestamp: datetime
+   # chat_id: int
 
-def insert_message(conversation_id: str, role: str, text: str, chat_id: int):
+def insert_message(conversation_id: str, bot: str, role: str, text: str, timestamp: datetime):
     """
     Insert a message into the database.
     
     Args:
         conversation_id: The conversation ID
+        bot: The bot username   
         role: Either "salesperson" or "customer"
         text: The message text
-        chat_id: The Telegram chat ID
+        timestamp: The timestamp of the message
     """
     
     if role == "salesperson":
@@ -49,7 +52,7 @@ def insert_message(conversation_id: str, role: str, text: str, chat_id: int):
         "bot": bot_username,
         "role": role,  
         "text": text,
-        "chat_id": chat_id,
+        #"chat_id": chat_id,
         "timestamp": datetime.now() 
     }
     
@@ -65,7 +68,7 @@ def post_message(message: Message):
         message: Message data to be saved
     """
     try:
-        insert_message(message.conversation_id, message.role, message.text, message.chat_id)
+        insert_message(message.conversation_id, message.bot, message.role, message.text, message.timestamp)
         return {"message": "Message saved successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
