@@ -1,10 +1,12 @@
+# customer_bot_telegram.py
+
 import os
-from openai import OpenAI
+import openai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 from datetime import datetime
 from dotenv import load_dotenv
-from db import insert_message  # Make sure the db.py file is correct and accessible
+from db import insert_message
 import random
 import sys
 
@@ -17,12 +19,9 @@ if sys.platform == 'win32':
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_1_TOKEN")
-OPENAI_API_KEY = os.getenv("aluraagency_OPEPNAI_API_KEY")
+openai.api_key = os.getenv("aluraagency_OPEPNAI_API_KEY")
 
-# Initialize OpenAI client
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-CONVERSATION_ID = "75214"
+CONVERSATION_ID = "281101"
 VA_bot = "@raihantapader"
 
 # Store conversation history per chat
@@ -84,7 +83,7 @@ PRODUCT_POOL = [
 # Track used products to ensure variety
 used_products_per_chat = {}
 
-# SYSTEM PROMPT
+# COMPREHENSIVE SYSTEM PROMPT
 SYSTEM_PROMPT = """
 🚨 CRITICAL ROLE INSTRUCTION 🚨
 
@@ -358,7 +357,7 @@ You communicate naturally with emotions - sometimes curious, sometimes skeptical
 
 ## Communication Style:
 - Casual and conversational
-- Use emojis naturally (😅, 😂, 😴, 😔, 😊, 😲, 😳, 😱, 👋, 🤔, 🤩, 🔥, 💯, 👍, 💻, 🖥️, ❓, 🛒, 🛍️, 😊, ✅, 🤖, 👀, 📱, 💬, 👌, 🎉, ❤️, 🤝, ❌, ⚠️, 📝, 📈, 😎, 🚀, 🔗, ❔,📍etc.)
+- Use emojis naturally (😅, 😂, 😊, 😲, 😳, 😱, 👋, 🤔, 🤩, 🔥, 💯, 👍, 💻, 🖥️, ❓, 🛒, 🛍️, 😊, ✅, 🤖, 👀, 📱, 💬 etc.)
 - Australian/casual English ("yeah," "nah," "heaps," "reckon")
 - Keep it brief and natural (1-3 sentences usually)
 - Show personality and emotion
@@ -442,6 +441,7 @@ NEVER EVER FLIP THIS RELATIONSHIP!
 ALWAYS VARY WHAT YOU'RE SHOPPING FOR!
 """
 
+
 def get_or_create_conversation_history(chat_id):
     """Get or create conversation history for a specific chat"""
     if chat_id not in conversation_histories:
@@ -472,6 +472,7 @@ def get_or_create_conversation_history(chat_id):
     
     return conversation_histories[chat_id]
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
     chat_id = update.message.chat.id
@@ -480,43 +481,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conv_history = get_or_create_conversation_history(chat_id)
     product = conv_history['product']
     
-    # Generate initial customer greeting using LLM
-    try:
-        initial_prompt = f"You are a customer who just entered a store. You are interested in buying {product}. Generate a natural, casual greeting message to start the conversation with the salesperson. Keep it brief (1-2 sentences) and friendly. Just write the greeting, nothing else."
-        
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a customer shopping at a store. Generate natural, varied greeting messages."},
-                {"role": "user", "content": initial_prompt}
-            ],
-            temperature=0.9,
-            max_tokens=80
-        )
-        
-        initial_message = response.choices[0].message.content.strip()
-        print(f"[INFO] LLM-generated initial message: {initial_message}")
-        
-    except Exception as e:
-        print(f"[ERROR] Failed to generate LLM greeting: {e}")
-        # Fallback to static message
-        initial_message = f"Hi! I'm interested in buying {product}. Can you help me find the right one?"
+    # Generate initial customer greeting
+    initial_message = f"Hi! I'm interested in buying {product}. Can you help me find the right one?"
     
     await update.message.reply_text(initial_message)
     
-    # Add initial message to conversation history
-    conv_history['messages'].append({
-        "role": "assistant",
-        "content": initial_message
-    })
-    
-    # Log the message into the database
+    # Log to database
     insert_message(
         conversation_id=CONVERSATION_ID,
+       # bot="customerBot_1",
         role="customer",
         text=initial_message,
         chat_id=chat_id
     )
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages"""
@@ -535,6 +513,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Insert incoming message into database
     insert_message(
         conversation_id=CONVERSATION_ID,
+       # bot=VA_bot if bot_role == "salesperson" else "customerBot_1",
         role=bot_role,
         text=user_message,
         chat_id=chat_id
@@ -550,13 +529,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Insert customer response into database
         insert_message(
             conversation_id=CONVERSATION_ID,
+           # bot="customerBot_1",
             role="customer",
             text=response,
             chat_id=chat_id
         )
         
-        # Send the response back to the Telegram user
+        # Send the response back
         await update.message.reply_text(response)
+
 
 async def gpt_customer_response(salesperson_message, chat_id):
     """Generate customer response using GPT with conversation memory"""
@@ -571,9 +552,13 @@ async def gpt_customer_response(salesperson_message, chat_id):
     })
     
     try:
-        # Call OpenAI API with full conversation history (NEW SYNTAX)
-        response = client.chat.completions.create(
-            model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cvi4Yd6v",
+        # Call OpenAI API with full conversation history
+        response = openai.ChatCompletion.create(
+            
+            # model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:CrGNWrcX",
+             #  model="gpt-3.5-turbo-0125", 
+            model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cvi4Yd6v", ## Both will be same fine tuned model
+            #model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cr1QtYEb",
             messages=conv_history['messages'],
             temperature=0.85,
             max_tokens=150,
@@ -583,7 +568,7 @@ async def gpt_customer_response(salesperson_message, chat_id):
             stop=["Salesperson:", "Sales person:", "Agent:", "SALESPERSON:"]
         )
         
-        customer_response = response.choices[0].message.content.strip()
+        customer_response = response['choices'][0]['message']['content'].strip()
         
         # SAFETY CHECK: Detect if model is acting as salesperson
         salesperson_phrases = [
@@ -593,24 +578,25 @@ async def gpt_customer_response(salesperson_message, chat_id):
             "welcome to our store",
             "can i assist you",
             "what brings you in today",
-            "are you looking for anything specific",
-            "how may i help",
-            "what can i do for you"
+            "are you looking for anything specific"
         ]
         
         response_lower = customer_response.lower()
         if any(phrase in response_lower for phrase in salesperson_phrases):
             print("[WARNING] Detected salesperson behavior, regenerating response...")
             
-            # Add reinforcement to force the correct customer behavior
+            # Add strong reinforcement
             conv_history['messages'].append({
                 "role": "system",
                 "content": f"CRITICAL REMINDER: YOU ARE THE CUSTOMER, NOT THE SALESPERSON. You came here to buy {conv_history['product']}. Express what YOU need or ask questions about the product YOU want to buy. Do NOT offer help or ask what the salesperson is looking for!"
             })
             
             # Regenerate response
-            response = client.chat.completions.create(
-                model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cvi4Yd6v",
+            response = openai.ChatCompletion.create(
+                # model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:CrGNWrcX",
+             #  model="gpt-3.5-turbo-0125", 
+                model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cvi4Yd6v", ## Both will be same fine tuned model
+              #  model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cr1QtYEb",
                 messages=conv_history['messages'],
                 temperature=0.85,
                 max_tokens=150,
@@ -620,7 +606,7 @@ async def gpt_customer_response(salesperson_message, chat_id):
                 stop=["Salesperson:", "Sales person:", "Agent:", "SALESPERSON:"]
             )
             
-            customer_response = response.choices[0].message.content.strip()
+            customer_response = response['choices'][0]['message']['content'].strip()
         
         # Add customer's response to conversation history
         conv_history['messages'].append({
@@ -634,124 +620,84 @@ async def gpt_customer_response(salesperson_message, chat_id):
         print(f"[ERROR] Error generating response: {str(e)}")
         return "Sorry, I'm having trouble responding right now. Can you say that again?"
 
+
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reset conversation for this chat and start fresh with new product"""
+    """Reset conversation for this chat"""
     chat_id = update.message.chat.id
     
     if chat_id in conversation_histories:
-        old_product = conversation_histories[chat_id]['product']
         del conversation_histories[chat_id]
-        print(f"[INFO] Conversation reset for chat {chat_id} (was: {old_product})")
-        
-        # Get new conversation with different product
-        conv_history = get_or_create_conversation_history(chat_id)
-        new_product = conv_history['product']
-        
-        # Generate new initial message with LLM
-        try:
-            initial_prompt = f"You are a customer who just entered a store. You are interested in buying {new_product}. Generate a natural, casual greeting message to start the conversation with the salesperson. Keep it brief (1-2 sentences) and friendly. Just write the greeting, nothing else."
-            
-            response = client.chat.completions.create(
-               # model="gpt-3.5-turbo",
-                model="ft:gpt-3.5-turbo-0125:personal:your-fine-tuned-model-name:Cvi4Yd6v",
-                messages=[
-                    {"role": "system", "content": "You are a customer shopping at a store. Generate natural, varied greeting messages."},
-                    {"role": "user", "content": initial_prompt}
-                ],
-                temperature=0.9,
-                max_tokens=80
-            )
-            
-            initial_message = response.choices[0].message.content.strip()
-            print(f"[INFO] New conversation started with: {new_product}")
-            print(f"[INFO] LLM-generated message: {initial_message}")
-            
-        except Exception as e:
-            print(f"[ERROR] Failed to generate LLM greeting: {e}")
-            initial_message = f"Hi! I'm looking for {new_product}. Can you help me?"
-        
-        # Add initial message to conversation history
-        conv_history['messages'].append({
-            "role": "assistant",
-            "content": initial_message
-        })
-        
-        # Send the new greeting
-        await update.message.reply_text(f"🔄 Conversation reset!\n\n{initial_message}")
-        
-        # Log the new message
-        insert_message(
-            conversation_id=CONVERSATION_ID,
-            role="customer",
-            text=initial_message,
-            chat_id=chat_id
-        )
-    else:
-        await update.message.reply_text("No active conversation to reset. Use /start to begin a new conversation!")
+        print(f"[INFO] Conversation reset for chat {chat_id}")
+    
+    await update.message.reply_text("Conversation has been reset! Use /start to begin a new conversation.")
 
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show current conversation status and statistics"""
+
+async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show what product the customer is interested in"""
     chat_id = update.message.chat.id
     
     if chat_id in conversation_histories:
-        conv_history = conversation_histories[chat_id]
-        product = conv_history['product']
-        
-        # Count messages by role (excluding system messages)
-        customer_messages = len([m for m in conv_history['messages'] if m['role'] == 'assistant'])
-        salesperson_messages = len([m for m in conv_history['messages'] if m['role'] == 'user'])
-        total_messages = customer_messages + salesperson_messages
-        
-        created_at = conv_history['created_at']
-        created_datetime = datetime.fromisoformat(created_at)
-        time_elapsed = datetime.now() - created_datetime
-        
-        # Format elapsed time
-        minutes = int(time_elapsed.total_seconds() / 60)
-        seconds = int(time_elapsed.total_seconds() % 60)
-        
-        if minutes > 0:
-            time_str = f"{minutes}m {seconds}s"
-        else:
-            time_str = f"{seconds}s"
-        
-        status_message = f"""📊 Conversation Status:
-
-🛍️ Current Product: {product}
-
-💬 Message Count:
-   • Customer (AI): {customer_messages}
-   • Salesperson: {salesperson_messages}
-   • Total: {total_messages}
-
-⏱️ Duration: {time_str}
-
-📅 Started: {created_datetime.strftime('%I:%M %p, %b %d')}
-
-━━━━━━━━━━━━━━━━━━━━
-💡 Use /reset to start fresh with a new product!
-"""
-        await update.message.reply_text(status_message)
+        product = conversation_histories[chat_id]['product']
+        await update.message.reply_text(f"PRODUCT: I'm currently interested in: {product}")
     else:
-        await update.message.reply_text("❌ No active conversation found.\n\n💡 Use /start to begin a new conversation!")
+        await update.message.reply_text("No active conversation. Use /start to begin!")
+
+
+async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show conversation history"""
+    chat_id = update.message.chat.id
+    
+    if chat_id not in conversation_histories:
+        await update.message.reply_text("No conversation history. Use /start to begin!")
+        return
+    
+    conv = conversation_histories[chat_id]
+    messages = conv['messages'][1:]  # Skip system prompt
+    
+    if not messages:
+        await update.message.reply_text("No messages yet in this conversation.")
+        return
+    
+    history_text = f"CONVERSATION HISTORY\nProduct: {conv['product']}\n\n"
+    
+    for i, msg in enumerate(messages, 1):
+        role = "SALESPERSON" if msg['role'] == 'user' else "CUSTOMER"
+        history_text += f"{i}. {role}:\n{msg['content']}\n\n"
+    
+    # Split into chunks if too long
+    if len(history_text) > 4000:
+        chunks = [history_text[i:i+4000] for i in range(0, len(history_text), 4000)]
+        for chunk in chunks:
+            await update.message.reply_text(chunk)
+    else:
+        await update.message.reply_text(history_text)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show help information"""
+    help_text = """
+CUSTOMER BOT COMMANDS
+
+/start - Start a new conversation with a random product interest
+
+
+I am a CUSTOMER bot. I will:
+- Ask about different products each time
+- Remember our conversation
+- Act naturally like a real customer
+- Never act as a salesperson
+
+You are the SALESPERSON who helps me!
+"""
+    await update.message.reply_text(help_text)
+
 
 def main():
     """Initialize and run the bot"""
-    if not TELEGRAM_BOT_TOKEN:
-        print("[ERROR] TELEGRAM_BOT_1_TOKEN not found in environment variables!")
-        return
-    
-    if not OPENAI_API_KEY:
-        print("[ERROR] aluraagency_OPEPNAI_API_KEY not found in environment variables!")
-        return
-    
     _bot_application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     
     # Add command handlers
     _bot_application.add_handler(CommandHandler('start', start))
-    _bot_application.add_handler(CommandHandler('reset', reset))
-    _bot_application.add_handler(CommandHandler('status', status))
-    
     # Add message handler
     _bot_application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
@@ -759,19 +705,16 @@ def main():
     print("CUSTOMER BOT IS RUNNING".center(70))
     print("="*70)
     print("Features:")
-    print("  ✓ Acts as a REAL CUSTOMER (never as salesperson)")
-    print("  ✓ Varied product interests per conversation")
-    print("  ✓ Conversation memory per chat")
-    print("  ✓ OpenAI 1.x API integration")
-    print("="*70)
-    print("\nCommands:")
-    print("  /start  - Start a new conversation")
-    print("  /reset  - Reset current conversation")
-    print("  /status - Show conversation status")
+    print("   - Acts as a REAL CUSTOMER (never as salesperson)")
+    print("   - Asks about DIFFERENT products each conversation")
+    print("   - REMEMBERS conversation history")
+    print("   - Natural, varied responses")
+    print("   - Saved to database")
     print("="*70)
     print("\nWaiting for messages...\n")
     
     _bot_application.run_polling(drop_pending_updates=True, poll_interval=1)
+
 
 if __name__ == '__main__':
     main()

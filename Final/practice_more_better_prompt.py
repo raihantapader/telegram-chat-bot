@@ -1,12 +1,13 @@
 import statistics
 from pymongo import MongoClient
-import openai
 from datetime import datetime
 import os
 from dotenv import load_dotenv
 import sys
 import io
 import re
+from openai import OpenAI
+import random
 
 # Fix Unicode encoding for Windows console
 if sys.platform == 'win32':
@@ -15,13 +16,16 @@ if sys.platform == 'win32':
 
 load_dotenv()
 
-MongoDB_Url = os.getenv("MONGODB_URI")  
-client = MongoClient(MongoDB_Url)
-db = client['Raihan']  # Database name
+# MongoDB setup
+MongoDB_Url = os.getenv("MONGODB_URI")
+mongo_client = MongoClient(MongoDB_Url)
+db = mongo_client['Raihan']  # Database name
 conversation_collection = db['chat_bot']  # Collection for conversations
 scores_collection = db['evaluation_scores']  # Collection to store evaluation scores
 
-openai.api_key = os.getenv("aluraagency_OPEPNAI_API_KEY")
+# OpenAI setup
+OPENAI_API_KEY = os.getenv("My_OPENAI_API_KEY")
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 def extract_salesperson_messages(test_id):
     """
@@ -30,11 +34,11 @@ def extract_salesperson_messages(test_id):
     """
     salesperson_data = conversation_collection.find(
         {
-            "conversation_id": test_id, 
+            "conversation_id": test_id,
             "role": "salesperson"
         }
     ).sort("timestamp", 1)
-    
+
     # Extract only the text field
     messages = []
     for message in salesperson_data:
@@ -43,8 +47,8 @@ def extract_salesperson_messages(test_id):
                 "text": message["text"],
                 "timestamp": message.get("timestamp", "N/A")
             })
-    
-    print("-"*60 + "\n")        
+
+    print("-"*60 + "\n")
     print(f"[INFO] Total Salesperson(VA's) Messages Found: {len(messages)}")
     return messages
 
@@ -67,14 +71,14 @@ You have evaluated over 100,000+ sales conversations across retail, services, B2
 
 ## 🎯 YOUR EVALUATION TASK
 
-You are assessing a **single message** from an **Australian salesperson** who is communicating with customers about products or services. 
+You are assessing a **single message** from an **Australian salesperson** who is communicating with customers about products or services.
 
 ### CRITICAL CONTEXT:
 1. **Salesperson Profile:**
    - Australian native or highly proficient in Australian English
    - Selling diverse products/services (electronics, clothing, furniture, services, health products, etc.)
    - May be in retail, B2B, online, consultative, or advisory role
-   
+
 2. **Customer Profile (DIVERSE):**
    - May be Australian native speakers
    - May be international English speakers (various proficiency levels)
@@ -334,8 +338,8 @@ Provide **ONLY** the numerical score as a single integer.
 - `94`
 
 ❌ **INCORRECT responses:**
-- "Score: 87" 
-- "87/100" 
+- "Score: 87"
+- "87/100"
 - "The score is 87"
 - "87 - Good quality"
 - Any text other than the number
@@ -368,20 +372,21 @@ You are evaluating **professional sales communication effectiveness** in an **Au
 
 Now evaluate the message below and provide ONLY the score (0-100):
 """
-    
+
     try:
-        response = openai.ChatCompletion.create(
+        # Use new OpenAI 1.x API syntax
+        response = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[ 
+            messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Text to evaluate:\n\n\"{text}\"\n\nProvide only the numerical score (0-100):"}
             ],
             max_tokens=10,
-            temperature=0.1 
+            temperature=0.0
         )
-        
-        result = response.choices[0].message['content'].strip()
-        
+        # Access response with new syntax
+        result = response.choices[0].message.content.strip()
+
         # Extract numerical score
         score_match = re.search(r'\d+', result)
         if score_match:
@@ -391,13 +396,12 @@ Now evaluate the message below and provide ONLY the score (0-100):
             return score
         else:
             print(f"[WARNING] Could not parse score from: {result}")
-            return 50  
-        
+            return 50
+
     except Exception as e:
         print(f"[ERROR] Failed to evaluate message: {str(e)}")
-        return 50 
+        return 50
 
-from datetime import datetime
 
 def calculate_duration(start_time, end_time):
     """
@@ -405,14 +409,16 @@ def calculate_duration(start_time, end_time):
     Returns the duration in the format: 'X minutes Y seconds'.
     """
     duration_seconds = (end_time - start_time).seconds
-    
+
     # Calculate minutes and seconds
+    hours = duration_seconds // 3600
+    duration_seconds %= 3600
     minutes = duration_seconds // 60
     seconds = duration_seconds % 60
-    
-    duration_str = f"{minutes} Min {seconds} Sec"
-    
+
+    duration_str = f"{hours} Hr {minutes} Min {seconds} Sec"
     return duration_str
+
 
 def analyze_salesperson_texts(test_id):
     """
@@ -422,27 +428,29 @@ def analyze_salesperson_texts(test_id):
     3. Calculate overall score and English level.
     4. Determine conversation duration based on timestamp.
     """
-    
+
     # Step 1: Extract messages
     messages = extract_salesperson_messages(test_id)
-    
+
     if not messages:
         print("[ERROR] No salesperson messages found for the given Test_ID!")
         return None
-    
+
     # Step 2: Evaluate each message
+    #print("\n[INFO] Evaluating messages...")
     scores = []
-    for message in messages:
+    for idx, message in enumerate(messages, 1):
         text = message["text"]
         score = evaluate_single_message(text)
         scores.append(score)
-    
+       # print(f"  Message {idx}/{len(messages)}: Score = {score}")
+
     # Step 3: Calculate overall score
     if scores:
         average_score = round(statistics.mean(scores), 2)
     else:
         average_score = 0
-    
+
     # Step 4: Determine English level based on score
     if average_score >= 70:
         english_level = "🟢 Excellent"
@@ -461,7 +469,7 @@ def analyze_salesperson_texts(test_id):
     start_time = messages[0]["timestamp"]
     end_time = messages[-1]["timestamp"]
     duration = calculate_duration(start_time, end_time)
-    
+
     # Step 6: Store results in the evaluation_scores collection
     result_data = {
         "test_id": test_id,
@@ -471,50 +479,65 @@ def analyze_salesperson_texts(test_id):
         "start_time": start_time,
         "end_time": end_time,
         "duration": duration,
-        "evaluation_time": datetime.now()  
+        "total_messages": len(messages),
+        "individual_scores": scores,
+        "evaluation_time": datetime.now()
     }
-    
+
     existing_record = scores_collection.find_one({"test_id": test_id})
     if existing_record:
-        
         scores_collection.update_one(
             {"test_id": test_id},
             {"$set": result_data}
         )
-        print(f"[INFO] Updated evaluation for Test_ID {test_id}.")
+        #print(f"\n[INFO] Updated evaluation for Test_ID {test_id}.")
     else:
-        
         scores_collection.insert_one(result_data)
-        print(f"[INFO] Stored new evaluation for Test_ID {test_id}.")
+        print(f"\n[INFO] Stored new evaluation for Test_ID {test_id}.")
+        
+    english_score = round(average_score, 2)
     
-    print(f"\nTest_ID: {test_id}")
-    print(f"Score: {round(average_score, 2)}/100")
+    # Display results
+    print("📊 EVALUATION RESULTS")
+    print(f"Test_ID: {test_id}")
+   # print(f"Score: {round(average_score, 2)}/100")
+    print(f"Score: {english_score}/100")
     print(f"English Level: {english_level}")
     print(f"Assessment: {level_description}")
     print(f"Duration: {duration}")
-    print("-"*60 + "\n")
-    
+    print(f"Total Messages: {len(messages)}")
+    print("-"*60)
+
+    # Score distribution
     excellent = sum(1 for s in scores if s >= 70)
     good = sum(1 for s in scores if 50 <= s < 70)
     medium = sum(1 for s in scores if 30 <= s < 50)
     poor = sum(1 for s in scores if s < 30)
-    
-    print(f"Score Distribution of {len(scores)} Messages:")
+
+    print(f"\n📈 Score Distribution of {len(scores)} Messages:")
     print(f"  🟢 Excellent (70-100): {excellent} messages ({round(excellent/len(scores)*100, 1)}%)")
     print(f"  🟡 Good (50-69):       {good} messages ({round(good/len(scores)*100, 1)}%)")
     print(f"  🟠 Medium (30-49):     {medium} messages ({round(medium/len(scores)*100, 1)}%)")
     print(f"  🔴 Poor (0-29):        {poor} messages ({round(poor/len(scores)*100, 1)}%)")
-    print("-"*60 + "\n")
-    
+    print("="*60 + "\n")
+
     return result_data
 
-
 def main():
-    test_id = "96369"  # Define the Test_ID you want to evaluate
+    """
+    Main execution function
+    """  
+    test_id = "3333"  # Define the Test_ID you want to evaluate
+
+    print(f"[INFO] Starting evaluation for Test_ID: {test_id}\n")
+
     result = analyze_salesperson_texts(test_id)
-    
+
     if result:
-        pass 
+        print("✅ [SUCCESS] Evaluation completed successfully!")
+        print(f"✅ [INFO] Results saved to MongoDB collection: evaluation_scores")
+    else:
+        print("❌ [FAILED] Evaluation could not be completed.")
 
 if __name__ == "__main__":
     main()

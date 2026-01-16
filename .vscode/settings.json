@@ -3,6 +3,7 @@
     "python-envs.pythonProjects": [],
     "python-envs.defaultEnvManager": "ms-python.python:system",
     "python.analysis.extraPaths": [
-        "./New_way_try"
+        "./New_way_try",
+        "./Final/English level evaluation"
     ]
 }
