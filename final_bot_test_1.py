@@ -23,7 +23,7 @@ OPENAI_API_KEY = os.getenv("aluraagency_OPEPNAI_API_KEY")
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-CONVERSATION_ID = "3333"
+CONVERSATION_ID = "3333" 
 VA_bot = "@raihantapader"
 
 # Store conversation history per chat
