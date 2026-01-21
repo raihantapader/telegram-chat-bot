@@ -33,7 +33,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     test_data = {
         "test_id": test_id,
         "status": "active",
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(),
         "created_by": chat_id
     }
     
@@ -50,12 +50,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Use this ID with the other bots so they all log the same session.\n\n"
         f"👉 Next steps:\n"
         f"1️⃣ Open each customer bot:\n\n"
-        f"• Customer Bot 1: @Cust0m3rBot\n"
-        f"• Customer Bot 2: @Cust0m4rBot\n"
-        f"• Customer Bot 3: @Cust0m5rBot\n"
-        f"• Customer Bot 4: @Cust0m6rBot\n"
-        f"• Customer Bot 5: @Cust0m7rBot\n\n"
-        f"2️⃣💡 You can now start any of the 5 customer bots and they will use Test ID: `{test_id}`\n\n"
+        f"•🤖 Bot 1 - Ted: @Cust0m3rBot\n"
+        f"•🤖 Bot 2 - James: @Cust0m4rBot\n"
+        f"•🤖 Bot 3 - Charlie: @Cust0m5rBot\n"
+        f"•🤖 Bot 4 - Jayson: @Cust0m6rBot\n"
+        f"•🤖 Bot 5 - Peter: @Cust0m7rBot\n\n"
+        f"2️⃣ You can now start any of the 5 customer bots and they will use Test ID: `{test_id}`\n\n"
         f"3️⃣ Then reply as fast as you can. The bots will handle the timing.\n\n"
         f"Later, we can centralize stats from all bots using this TestID.\n\n"
         f"Happy testing . . . 🚀"

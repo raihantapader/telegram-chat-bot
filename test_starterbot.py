@@ -14,7 +14,7 @@ from datetime import datetime
 load_dotenv()
 
 Telegram_Bot_Token = os.getenv("STARTER_BOT_TOKEN")
-OPEPNAI_API_KEY = os.getenv("aluraagency_OPEPNAI_API_KEY")
+OPEPNAI_API_KEY = os.getenv("check_openai_api_key")
 
 MongoDB_Url = os.getenv("MONGODB_URI")
 client = MongoClient(MongoDB_Url)

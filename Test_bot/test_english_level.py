@@ -1,13 +1,35 @@
-"""
-IMPROVED SYSTEM PROMPT FOR SALESPERSON MESSAGE EVALUATION
-Aligned with 4-tier scoring system:
-- 🟢 Excellent (70-100): Strong conversion potential
-- 🟡 Good (50-69): Good potential, minor improvements needed  
-- 🟠 Medium (30-49): Needs improvement, re-engage
-- 🔴 Needs Improvement (0-29): Poor English, consider re-qualifying
-"""
+import statistics
+from pymongo import MongoClient
+from datetime import datetime
+import os
+from dotenv import load_dotenv
+import sys
+import io
+import re
+from openai import OpenAI
+import random
 
-IMPROVED_SYSTEM_PROMPT = """
+# Fix Unicode encoding for Windows console
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+load_dotenv()
+
+# MongoDB setup
+MongoDB_Url = os.getenv("MONGODB_URI")
+mongo_client = MongoClient(MongoDB_Url)
+db = mongo_client['Raihan']  # Database name
+conversation_collection = db['chat_bot']  # Collection for conversations
+scores_collection = db['evaluation_scores']  # Collection to store evaluation scores
+test_collection = db['active_test_ids']  # Collection for active test ids
+
+# OpenAI setup
+OPENAI_API_KEY = os.getenv("aluraagency_OPEPNAI_API_KEY")
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+SYSTEM_PROMPT = """
 You are **Dr. Sarah Chen**, PhD in Applied Linguistics with 20+ years specializing in:
 - Australian business English communication assessment
 - Sales conversation analysis and effectiveness evaluation
@@ -345,36 +367,199 @@ Use these to calibrate your scoring:
 Now evaluate the message below and respond with ONLY the score (0-100):
 """
 
+def get_latest_test_id():
+    """Get the most recent active test_id from database"""
+    try:
+        latest_test = test_collection.find_one(
+            {"status": "active"},
+            sort=[("created_at", -1)]
+        )
+        
+        if latest_test:
+            test_id = latest_test['test_id']
+            print(f"✅ Retrieved latest Test ID: {test_id}")
+            return test_id
+        else:
+            print("⚠️  No active test_id found. Using default.")
+            return "default"
+    except Exception as e:
+        print(f"❌ Error retrieving test_id: {e}")
+        return "default"
 
-# Usage in the evaluation function:
-def evaluate_single_message_improved(text):
-    """
-    Improved version using the aligned 4-tier system prompt
-    Returns a score between 0-100
-    """
+
+def get_salesperson_messages(test_id):
+    """Get all salesperson messages for a test_id"""
+    messages = conversation_collection.find(
+        {"conversation_id": test_id, "role": "salesperson"}
+    ).sort("timestamp", 1)
+
+    message_list = []
+    for msg in messages:
+        if "text" in msg and msg["text"].strip():
+            message_list.append({
+                "text": msg["text"],
+                "timestamp": msg.get("timestamp", "N/A")
+            })
+
+    print(f"📥 Found salesperson messages: {len(message_list)}")
+    return message_list
+
+
+def evaluate_message(text):
+    """Evaluate a single message and return score 0-100"""
     try:
         response = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[ 
-                {"role": "system", "content": IMPROVED_SYSTEM_PROMPT},
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"Evaluate this salesperson message:\n\n\"{text}\"\n\nRespond with only the score (0-100):"}
             ],
             max_tokens=10,
-            temperature=0.0  # Deterministic scoring
+            temperature=0.0
         )
         
         result = response.choices[0].message.content.strip()
         
-        # Extract numerical score
+        # Extract number from response
         score_match = re.search(r'\d+', result)
         if score_match:
             score = int(score_match.group())
-            score = max(0, min(100, score))  # Ensure 0-100 range
+            score = max(0, min(100, score))
             return score
         else:
-            print(f"[WARNING] Could not parse score from GPT response: {result}")
-            return 50  # Default to middle score if parsing fails
+            print(f"⚠️  Could not parse score: {result}")
+            return 50
             
     except Exception as e:
-        print(f"[ERROR] Failed to evaluate message: {str(e)}")
-        return 50  # Default to middle score on error
+        print(f"❌ Evaluation error: {e}")
+        return 50
+
+
+def calculate_duration(start_time, end_time):
+    """Calculate duration between two timestamps"""
+    duration_seconds = (end_time - start_time).seconds
+    hours = duration_seconds // 3600
+    duration_seconds %= 3600
+    minutes = duration_seconds // 60
+    seconds = duration_seconds % 60
+    return f"{hours} Hr {minutes} Min {seconds} Sec"
+
+
+def get_english_level(score):
+    """Get English level and description based on score"""
+    if score >= 70:
+        return "🟢 Excellent", "Strong conversion potential"
+    elif score >= 50:
+        return "🟡 Good", "Good potential, minor improvements needed"
+    elif score >= 30:
+        return "🟠 Medium", "Needs improvement, re-engage"
+    else:
+        return "🔴 Needs Improvement", "Poor English, consider re-qualifying"
+
+
+def analyze_salesperson(test_id):
+    """Main analysis function"""
+    
+    # Get all messages
+    messages = get_salesperson_messages(test_id)
+    
+    if not messages:
+        print("❌ No messages found!")
+        return None
+    
+    # Evaluate each message
+   # print(f"\n🔍 Evaluating {len(messages)} messages...\n")
+    scores = []
+    for i, msg in enumerate(messages, 1):
+        score = evaluate_message(msg["text"])
+        scores.append(score)
+      #  print(f"  Message {i}: {score}/100")
+    
+    # Calculate overall score
+    average_score = round(statistics.mean(scores), 2)
+    
+    # Get English level
+    level, description = get_english_level(average_score)
+    
+    # Calculate duration
+    start_time = messages[0]["timestamp"]
+    end_time = messages[-1]["timestamp"]
+    duration = calculate_duration(start_time, end_time)
+    
+    # Count score distribution
+    excellent = sum(1 for s in scores if s >= 70)
+    good = sum(1 for s in scores if 50 <= s < 70)
+    medium = sum(1 for s in scores if 30 <= s < 50)
+    poor = sum(1 for s in scores if s < 30)
+    
+    # Save to database
+    result = {
+        "test_id": test_id,
+        "score": f"{average_score}/100",
+        "english_level": level,
+        "assessment": description,
+        "start_time": start_time,
+        "end_time": end_time,
+        "duration": duration,
+        "total_messages": len(messages),
+        "individual_scores": scores,
+        "score_distribution": {
+            "excellent": excellent,
+            "good": good,
+            "medium": medium,
+            "poor": poor
+        },
+        "evaluation_time": datetime.now()
+    }
+    
+    # Update or insert
+    existing = scores_collection.find_one({"test_id": test_id})
+    if existing:
+        scores_collection.update_one({"test_id": test_id}, {"$set": result})
+      #  print("\n✅ Updated existing evaluation")
+    else:
+        scores_collection.insert_one(result)
+        print("\n✅ Saved new evaluation")
+    
+    # Display results
+    print("\n" + "="*70)
+    print("📊 EVALUATION RESULTS".center(70))
+    print("="*70)
+    print(f"\n  Test ID:        {test_id}")
+    print(f"  Overall Score:  {average_score}/100")
+    print(f"  English Level:  {level}")
+    print(f"  Assessment:     {description}")
+    print(f"  Duration:       {duration}")
+    print(f"  Total Messages: {len(messages)}")
+    
+    print(f"\n📈 Score Distribution:")
+    print(f"  🟢 Excellent (70-100):  {excellent} messages ({round(excellent/len(scores)*100, 1)}%)")
+    print(f"  🟡 Good (50-69):        {good} messages ({round(good/len(scores)*100, 1)}%)")
+    print(f"  🟠 Medium (30-49):      {medium} messages ({round(medium/len(scores)*100, 1)}%)")
+    print(f"  🔴 Poor (0-29):         {poor} messages ({round(poor/len(scores)*100, 1)}%)")
+    print("\n" + "="*70 + "\n")
+    
+    return result
+
+
+def main():
+    """Main execution"""
+    print("\n" + "="*70)
+    print("SALESPERSON ENGLISH EVALUATION SYSTEM".center(70))
+    print("="*70 + "\n")
+    
+    # Get latest test ID
+    test_id = get_latest_test_id()
+    
+    # Run analysis
+    result = analyze_salesperson(test_id)
+    
+    if result:
+        print("✅ Evaluation completed successfully!")
+        print("💾 Results saved to MongoDB: evaluation_scores\n")
+    else:
+        print("❌ Evaluation failed!\n")
+
+
+if __name__ == "__main__":
+    main()

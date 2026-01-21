@@ -23,11 +23,11 @@ BOT_FILES = [
 ]
 
 BOT_NAMES = [
-    "Customer Bot 1 (@Cust0m3rBot)",
-    "Customer Bot 2 (@Cust0m4rBot)",
-    "Customer Bot 3 (@Cust0m5rBot)",
-    "Customer Bot 4 (@Cust0m6rBot)",
-    "Customer Bot 5 (@Cust0m7rBot)"
+    "🤖 Bot_1 - Ted (@Cust0m3rBot)",
+    "🤖 Bot_2 - James (@Cust0m4rBot)",
+    "🤖 Bot_3 - Charlie (@Cust0m5rBot)",
+    "🤖 Bot_4 - Jayson (@Cust0m6rBot)",
+    "🤖 Bot_5 - Peter (@Cust0m7rBot)"
 ]
 
 def print_header():
