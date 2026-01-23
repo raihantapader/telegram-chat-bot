@@ -574,8 +574,9 @@ async def gpt_customer_response(salesperson_message, chat_id):
         return customer_response
         
     except Exception as e:
-        print(f"[ERROR] GPT API Error: {e}")
-        return "Sorry, I'm having trouble responding right now."
+        error_msg = f"Sorry, something went wrong. Error: {type(e).__name__}: {e}"
+        print(f"[ERROR] {type(e).__name__}: {e}")
+        return error_msg
 
 
 def main():

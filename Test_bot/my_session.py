@@ -1,7 +1,3 @@
-# my_session.py
-# Run this ONCE to generate session string
-# After running, copy the session string to your .env file
-
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
 from dotenv import load_dotenv

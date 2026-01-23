@@ -10,7 +10,7 @@ import uvicorn
 
 load_dotenv()
 
-MongoDB_Url = os.getenv("MONGODB_URI")
+MongoDB_Url = os.getenv("DB_URI")
 client = MongoClient(MongoDB_Url)
 db = client['Raihan']
 collection = db['chat_bot']
@@ -84,7 +84,8 @@ def root():
             "GET /api/latest_test_id": "Get the latest active test_id",
             "GET /api/room_id/{room_id}/{conversation_id}": "Get all messages for a room and conversation",
             "GET /api/conversations": "Get all conversations with evaluation scores",
-            "GET /api/stats/{test_id}": "Get conversation statistics"
+            "GET /api/stats": "Get all conversation statistics",
+            "DELETE /api/test/{test_id}": "Delete a test by test_id"
         }
     }
 
@@ -235,74 +236,144 @@ def calculate_average_response_time(conversation_id: str):
         return "N/A"
 
 
-@app.get("/api/stats/{test_id}", response_model=ConversationStats)
-def get_conversation_stats(test_id: str):
+@app.get("/api/stats")
+def get_all_conversation_stats():
     """
-    GET method to fetch statistics for a specific test_id.
+    GET method to fetch statistics for ALL test_ids.
+    Sorted by score (highest first)
     """
     try:
-        total_messages = collection.count_documents({"conversation_id": test_id})
+        # Get all unique test_ids
+        all_test_ids = collection.distinct("conversation_id")
         
-        if total_messages == 0:
+        if not all_test_ids:
             raise HTTPException(
                 status_code=404,
-                detail=f"No messages found for test_id: {test_id}"
+                detail="No conversations found"
             )
         
-        customer_messages = collection.count_documents({
-            "conversation_id": test_id,
-            "role": "customer"
-        })
+        all_stats = []
         
-        salesperson_messages = collection.count_documents({
-            "conversation_id": test_id,
-            "role": "salesperson"
-        })
+        for test_id in all_test_ids:
+            total_messages = collection.count_documents({"conversation_id": test_id})
+            
+            customer_messages = collection.count_documents({
+                "conversation_id": test_id,
+                "role": "customer"
+            })
+            
+            salesperson_messages = collection.count_documents({
+                "conversation_id": test_id,
+                "role": "salesperson"
+            })
+            
+            first_msg = collection.find_one(
+                {"conversation_id": test_id},
+                sort=[("timestamp", 1)]
+            )
+            last_msg = collection.find_one(
+                {"conversation_id": test_id},
+                sort=[("timestamp", -1)]
+            )
+            
+            duration_str = None
+            if first_msg and last_msg:
+                duration = last_msg["timestamp"] - first_msg["timestamp"]
+                total_seconds = int(duration.total_seconds())
+                hours = total_seconds // 3600
+                total_seconds %= 3600
+                minutes = total_seconds // 60
+                seconds = total_seconds % 60
+                duration_str = f"{hours} Hr {minutes} Min {seconds} Sec"
+            
+            result_data = scores_collection.find_one({"test_id": test_id})
+            
+            score = 0  # Default to 0 for sorting
+            score_display = "N/A"
+            english_level = "N/A"
+            level_description = "N/A"
+            
+            if result_data:
+                score_value = result_data.get("score", "N/A")
+                # Handle score for sorting
+                if score_value != "N/A":
+                    try:
+                        score = float(score_value)
+                        score_display = score_value
+                    except (ValueError, TypeError):
+                        score = 0
+                        score_display = score_value
+                else:
+                    score_display = "N/A"
+                
+                english_level = result_data.get("english_level", "N/A")
+                level_description = result_data.get("assessment", "N/A")
+            
+            response_time = calculate_average_response_time(test_id)
+            
+            all_stats.append({
+                "test_id": test_id,
+                "total_messages": total_messages,
+                "customer_messages": customer_messages,
+                "salesperson_messages": salesperson_messages,
+                "duration": duration_str,
+                "score": score_display,
+                "score_numeric": score,  # For sorting
+                "english_level": english_level,
+                "level_description": level_description,
+                "response_time": response_time,
+                "start_time": first_msg["timestamp"] if first_msg else None,
+                "end_time": last_msg["timestamp"] if last_msg else None,
+            })
         
-        first_msg = collection.find_one(
-            {"conversation_id": test_id},
-            sort=[("timestamp", 1)]
-        )
-        last_msg = collection.find_one(
-            {"conversation_id": test_id},
-            sort=[("timestamp", -1)]
-        )
+        # Sort by score (highest first)
+        all_stats.sort(key=lambda x: x["score_numeric"], reverse=True)
         
-        duration_str = None
-        if first_msg and last_msg:
-            duration = last_msg["timestamp"] - first_msg["timestamp"]
-            total_seconds = int(duration.total_seconds())
-            hours = total_seconds // 3600
-            total_seconds %= 3600
-            minutes = total_seconds // 60
-            seconds = total_seconds % 60
-            duration_str = f"{hours} Hr {minutes} Min {seconds} Sec"
-        
-        result_data = scores_collection.find_one({"test_id": test_id})
-        
-        score = "N/A"
-        english_level = "N/A"
-        level_description = "N/A"
-        
-        if result_data:
-            score = result_data.get("score", "N/A")
-            english_level = result_data.get("english_level", "N/A")
-            level_description = result_data.get("assessment", "N/A")
-        
-        response_time = calculate_average_response_time(test_id)
+        # Remove score_numeric from response
+        for stat in all_stats:
+            del stat["score_numeric"]
         
         return {
-            "test_id": test_id,
-            "total_messages": total_messages,
-            "customer_messages": customer_messages,
-            "salesperson_messages": salesperson_messages,
-            "duration": duration_str,
-            "score": score,
-            "english_level": english_level,
-            "level_description": level_description,
-            "response_time": response_time,
-            "start_time": first_msg["timestamp"] if first_msg else None,
-            "end_time": last_msg["timestamp"] if last_msg else None,
+            "total_tests": len(all_stats),
+            "stats": all_stats
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {e}")
+
+
+@app.delete("/api/test/{test_id}")
+def delete_test(test_id: str):
+    """
+    DELETE method to delete all data for a specific test_id.
+    Deletes from: chat_bot, evaluation_scores, active_test_ids
+    """
+    try:
+        # Check if test_id exists
+        message_count = collection.count_documents({"conversation_id": test_id})
+        score_count = scores_collection.count_documents({"test_id": test_id})
+        test_count = test_collection.count_documents({"test_id": test_id})
+        
+        if message_count == 0 and score_count == 0 and test_count == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Test ID '{test_id}' not found"
+            )
+        
+        # Delete from all collections
+        messages_deleted = collection.delete_many({"conversation_id": test_id})
+        scores_deleted = scores_collection.delete_many({"test_id": test_id})
+        tests_deleted = test_collection.delete_many({"test_id": test_id})
+        
+        return {
+            "message": f"Test '{test_id}' deleted successfully",
+            "deleted": {
+                "messages": messages_deleted.deleted_count,
+                "scores": scores_deleted.deleted_count,
+                "test_records": tests_deleted.deleted_count
+            }
         }
         
     except HTTPException:
@@ -316,11 +387,12 @@ if __name__ == "__main__":
     print("CONVERSATION MANAGEMENT API SERVER".center(70))
     print("="*70)
     print("\nAPI Endpoints:")
-    print("  GET  /                                        - Root")
-    print("  GET  /api/latest_test_id                      - Get current active test_id")
-    print("  GET  /api/room_id/{room_id}/{conversation_id} - Get room conversation")
-    print("  GET  /api/conversations                       - Get all conversations")
-    print("  GET  /api/stats/{test_id}                     - Get conversation stats")
+    print("  GET    /                                  - Root")
+    print("  GET    /api/latest_test_id                - Get current active test_id")
+    print("  GET    /api/{room_id}/{conversation_id}   - Get room conversation")
+    print("  GET    /api/conversations                 - Get all conversations")
+    print("  GET    /api/stats                         - Get all conversation stats")
+    print("  DELETE /api/test/{test_id}                - Delete a test by test_id")
     print("="*70)
     print("\nServer running at: http://10.10.20.111:8086")
     print("API Documentation: http://10.10.20.111:8086/docs")
