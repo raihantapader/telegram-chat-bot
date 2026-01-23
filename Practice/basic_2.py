@@ -9,7 +9,7 @@
 
 
 # Another way to import the entire module (Import with Alias (Nickname))
-import basic_1 as b1
+import Practice.basic_1 as b1
 
 print(b1.greet_user("Raihan"))
 print("Sum:", b1.calculate_sum(5, 10))
