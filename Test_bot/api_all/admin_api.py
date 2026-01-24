@@ -219,7 +219,7 @@ def admin_login(data: AdminLogin):
         if admin.get("is_blocked", False):
             raise HTTPException(
                 status_code=403,
-                detail="Your account has been blocked. Please contact super admin."
+                detail="Your account has been blocked. Please contact other admin."
             )
         
         # Verify password
@@ -227,6 +227,8 @@ def admin_login(data: AdminLogin):
             raise HTTPException(
                 status_code=401,
                 detail="Invalid email or password"
+               # "message": "This user is blocked"
+                
             )
         
         # Generate JWT token

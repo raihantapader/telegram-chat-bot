@@ -1,6 +1,3 @@
-# telegram_chat_api.py
-# API for Telegram Chat with person_id support
-
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -126,14 +123,27 @@ def get_all_friends():
             # Get first and last message timestamps
             start_time = None
             end_time = None
+            duration_seconds = None
+            
             if messages:
                 start_time = messages[0].get("timestamp")
                 end_time = messages[-1].get("timestamp")
+                if start_time and end_time:
+                    duration_seconds = (end_time - start_time).total_seconds()
+            
+            # Calculate average response time
+            avg_response_seconds = calculate_avg_response_time(messages)
+            
+            # Get performance from friend document
+            performance = friend.get("performance", None)
             
             result.append({
                 "person_id": person_id,
                 "username": friend.get("username"),
                 "name": friend.get("name"),
+                "duration": format_duration(duration_seconds),
+                "avg_response_time": format_duration(avg_response_seconds),
+                "performance": performance,
                 "chat_id": friend.get("chat_id"),
                 "total_messages": msg_count,
                 "start_time": start_time,
