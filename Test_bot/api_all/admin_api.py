@@ -1,9 +1,8 @@
-# admin_api.py
-# Admin Management API - Add, Block, Unblock, Delete Admins
 
 import os
 import hashlib
-from datetime import datetime
+import jwt
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
@@ -12,6 +11,7 @@ from typing import Optional
 from bson import ObjectId
 from dotenv import load_dotenv
 import uvicorn
+# from fastapi import APIRouter
 
 load_dotenv()
 
@@ -21,7 +21,13 @@ client = MongoClient(MongoDB_Url)
 db = client['Raihan']
 admins_collection = db['admins']
 
+# JWT Configuration
+JWT_SECRET = os.getenv("JWT_SECRET", "your_super_secret_key_2026")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24  # Token expires in 24 hours
+
 # FastAPI app
+# router = APIRouter()
 app = FastAPI(title="Admin Management API")
 
 app.add_middleware(
@@ -70,8 +76,40 @@ def format_date(dt: datetime) -> str:
         return dt.strftime("%d %b %Y")
     return None
 
-# API Endpoints
 
+def create_token(email: str, admin_id: str, name: str) -> str:
+    """Create JWT token"""
+    payload = {
+        "email": email,
+        "admin_id": admin_id,
+        "name": name,
+        "exp": datetime.now() + timedelta(hours=JWT_EXPIRATION_HOURS),
+        "iat": datetime.now()
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return token
+
+
+def find_admin_by_email(email: str):
+    """Find admin by email (case-insensitive)"""
+    # Try exact match first
+    admin = admins_collection.find_one({"email": email})
+    if admin:
+        return admin
+    
+    # Try lowercase
+    admin = admins_collection.find_one({"email": email.lower()})
+    if admin:
+        return admin
+    
+    # Try case-insensitive regex
+    admin = admins_collection.find_one({
+        "email": {"$regex": f"^{email}$", "$options": "i"}
+    })
+    return admin
+
+# API Endpoints
+# @router.get("/")
 @app.get("/")
 def root():
     """Root endpoint - API information"""
@@ -80,9 +118,9 @@ def root():
         "endpoints": {
             "GET /api/admins": "Get all admins",
             "POST /api/admins": "Add new admin",
-            "POST /api/admins/login": "Admin login",
-            "PUT /api/admins/block": "Block admin (body: email)",
-            "PUT /api/admins/unblock": "Unblock admin (body: email)",
+            "POST /api/admins/login": "Admin login (returns token)",
+            "PATCH /api/admins/block": "Block admin (body: email)",
+            "PATCH /api/admins/unblock": "Unblock admin (body: email)",
             "DELETE /api/admins": "Delete admin (body: email)"
         }
     }
@@ -97,7 +135,6 @@ def get_all_admins():
         result = []
         for admin in admins:
             result.append({
-               # "id": str(admin.get("_id")),
                 "name": f"{admin.get('first_name', '')} {admin.get('last_name', '')}".strip(),
                 "first_name": admin.get("first_name"),
                 "last_name": admin.get("last_name"),
@@ -117,12 +154,12 @@ def get_all_admins():
         raise HTTPException(status_code=500, detail=f"Error: {e}")
 
 
-@app.post("/api/admins")
+@app.post("/api/admins/add_admin")
 def add_admin(admin: AddAdmin):
     """Add new admin"""
     try:
         # Check if email already exists
-        existing_admin = admins_collection.find_one({"email": admin.email})
+        existing_admin = find_admin_by_email(admin.email)
         if existing_admin:
             raise HTTPException(
                 status_code=400,
@@ -136,7 +173,7 @@ def add_admin(admin: AddAdmin):
         new_admin = {
             "first_name": admin.first_name,
             "last_name": admin.last_name,
-            "email": admin.email,
+            "email": admin.email.lower(),  # Store in lowercase
             "phone": admin.phone,
             "password": hashed_password,
             "is_blocked": False,
@@ -152,7 +189,7 @@ def add_admin(admin: AddAdmin):
             "admin": {
                 "id": str(result.inserted_id),
                 "name": f"{admin.first_name} {admin.last_name}",
-                "email": admin.email,
+                "email": admin.email.lower(),
                 "phone": admin.phone,
                 "is_blocked": False,
                 "added_date": format_date(datetime.now())
@@ -167,10 +204,10 @@ def add_admin(admin: AddAdmin):
 
 @app.post("/api/admins/login")
 def admin_login(data: AdminLogin):
-    """Admin login"""
+    """Admin login - Returns JWT token"""
     try:
         # Find admin by email
-        admin = admins_collection.find_one({"email": data.email})
+        admin = find_admin_by_email(data.email)
         
         if not admin:
             raise HTTPException(
@@ -192,14 +229,23 @@ def admin_login(data: AdminLogin):
                 detail="Invalid email or password"
             )
         
+        # Generate JWT token
+        admin_id = str(admin.get("_id"))
+        name = f"{admin.get('first_name', '')} {admin.get('last_name', '')}".strip()
+        token = create_token(admin.get("email"), admin_id, name)
+        
         return {
             "success": True,
             "message": "Login successful",
+            "token": token,
+           # "token_type": "Bearer",
+           # "expires_in": JWT_EXPIRATION_HOURS * 3600,
             "admin": {
-                "id": str(admin.get("_id")),
-                "name": f"{admin.get('first_name', '')} {admin.get('last_name', '')}".strip(),
+                "id": admin_id,
+                "name": name,
                 "email": admin.get("email"),
-                "phone": admin.get("phone")
+                "phone": admin.get("phone"),
+                "photo": admin.get("photo")
             }
         }
         
@@ -209,17 +255,12 @@ def admin_login(data: AdminLogin):
         raise HTTPException(status_code=500, detail=f"Error: {e}")
 
 
-@app.put("/api/admins/block")
+@app.patch("/api/admins/block")
 def block_admin(data: AdminEmail):
-    """
-    Block an admin
-    Frontend: Show "Are you sure to block this admin?" -> Yes/No
-    If Yes -> Call this API
-    If No -> Do nothing
-    """
+    """Block an admin"""
     try:
         # Find admin by email
-        admin = admins_collection.find_one({"email": data.email})
+        admin = find_admin_by_email(data.email)
         
         if not admin:
             raise HTTPException(
@@ -236,7 +277,7 @@ def block_admin(data: AdminEmail):
         
         # Block admin
         admins_collection.update_one(
-            {"email": data.email},
+            {"_id": admin["_id"]},
             {
                 "$set": {
                     "is_blocked": True,
@@ -251,7 +292,7 @@ def block_admin(data: AdminEmail):
             "message": "Admin blocked successfully",
             "admin": {
                 "name": f"{admin.get('first_name', '')} {admin.get('last_name', '')}".strip(),
-                "email": data.email,
+                "email": admin["email"],
                 "is_blocked": True
             }
         }
@@ -262,17 +303,12 @@ def block_admin(data: AdminEmail):
         raise HTTPException(status_code=500, detail=f"Error: {e}")
 
 
-@app.put("/api/admins/unblock")
+@app.patch("/api/admins/unblock")
 def unblock_admin(data: AdminEmail):
-    """
-    Unblock an admin
-    Frontend: Show "Are you sure to unblock this admin?" -> Yes/No
-    If Yes -> Call this API
-    If No -> Do nothing
-    """
+    """Unblock an admin"""
     try:
         # Find admin by email
-        admin = admins_collection.find_one({"email": data.email})
+        admin = find_admin_by_email(data.email)
         
         if not admin:
             raise HTTPException(
@@ -289,7 +325,7 @@ def unblock_admin(data: AdminEmail):
         
         # Unblock admin
         admins_collection.update_one(
-            {"email": data.email},
+            {"_id": admin["_id"]},
             {
                 "$set": {
                     "is_blocked": False,
@@ -304,7 +340,7 @@ def unblock_admin(data: AdminEmail):
             "message": "Admin unblocked successfully",
             "admin": {
                 "name": f"{admin.get('first_name', '')} {admin.get('last_name', '')}".strip(),
-                "email": data.email,
+                "email": admin["email"],
                 "is_blocked": False
             }
         }
@@ -315,17 +351,12 @@ def unblock_admin(data: AdminEmail):
         raise HTTPException(status_code=500, detail=f"Error: {e}")
 
 
-@app.delete("/api/admins")
+@app.delete("/api/admins/delete")
 def delete_admin(data: AdminEmail):
-    """
-    Delete an admin
-    Frontend: Show "Are you sure to delete this admin?" -> Yes/No
-    If Yes -> Call this API
-    If No -> Do nothing
-    """
+    """Delete an admin"""
     try:
         # Find admin by email
-        admin = admins_collection.find_one({"email": data.email})
+        admin = find_admin_by_email(data.email)
         
         if not admin:
             raise HTTPException(
@@ -334,15 +365,57 @@ def delete_admin(data: AdminEmail):
             )
         
         # Delete admin
-        admins_collection.delete_one({"email": data.email})
+        admins_collection.delete_one({"_id": admin["_id"]})
         
         return {
             "success": True,
             "message": "Admin deleted successfully",
             "deleted_admin": {
                 "name": f"{admin.get('first_name', '')} {admin.get('last_name', '')}".strip(),
-                "email": data.email
+                "email": admin["email"]
             }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {e}")
+
+
+@app.post("/api/admins/reset-password")
+def reset_password(data: AdminLogin):
+    """
+    Reset password for an admin
+    Use this to fix password if login doesn't work
+    """
+    try:
+        # Find admin by email
+        admin = find_admin_by_email(data.email)
+        
+        if not admin:
+            raise HTTPException(
+                status_code=404,
+                detail="Admin not found"
+            )
+        
+        # Hash new password
+        hashed_password = hash_password(data.password)
+        
+        # Update password
+        admins_collection.update_one(
+            {"_id": admin["_id"]},
+            {
+                "$set": {
+                    "password": hashed_password,
+                    "updated_at": datetime.now()
+                }
+            }
+        )
+        
+        return {
+            "success": True,
+            "message": "Password reset successfully",
+            "email": admin["email"]
         }
         
     except HTTPException:
@@ -356,12 +429,13 @@ if __name__ == "__main__":
     print("ADMIN MANAGEMENT API SERVER".center(60))
     print("=" * 60)
     print("\nAPI Endpoints:")
-    print("  GET    /api/admins          - Get all admins")
-    print("  POST   /api/admins          - Add new admin")
-    print("  POST   /api/admins/login    - Admin login")
-    print("  PUT    /api/admins/block    - Block admin")
-    print("  PUT    /api/admins/unblock  - Unblock admin")
-    print("  DELETE /api/admins          - Delete admin")
+    print("  GET    /api/admins              - Get all admins")
+    print("  POST   /api/admins              - Add new admin")
+    print("  POST   /api/admins/login        - Admin login (JWT)")
+    print("  PATCH  /api/admins/block        - Block admin")
+    print("  PATCH  /api/admins/unblock      - Unblock admin")
+    print("  DELETE /api/admins              - Delete admin")
+    print("  POST   /api/admins/reset-password - Reset password")
     print("=" * 60)
     print("\nServer running at: http://10.10.20.111:8088")
     print("API Documentation: http://10.10.20.111:8088/docs")
