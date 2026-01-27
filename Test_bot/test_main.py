@@ -25,10 +25,12 @@ def start_process(script_file, script_name):
     """Generic function to start any script"""
     try:
         process = subprocess.Popen(
-            [sys.executable, script_file],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
+        [sys.executable, script_file],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding='utf-8',      # Added
+        errors='replace'       # Added - handles undecodable characters
+    )
         time.sleep(0.5)
         if process.poll() is None:
             print(f"  ✅ {script_name} (PID: {process.pid})")
@@ -47,7 +49,9 @@ def run_evaluation():
             [sys.executable, EVALUATION_SCRIPT],
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=120,
+            encoding='utf-8',
+            errors='replace'
         )
         if result.stdout.strip():
             print(result.stdout)
@@ -73,7 +77,7 @@ def main():
     required_files = [STARTER_BOT_SCRIPT] + BOT_FILES + [EVALUATION_SCRIPT, TELEGRAM_MONITOR_SCRIPT]
     missing = [f for f in required_files if not os.path.exists(f)]
     if missing:
-        print(f"❌ Missing files: {missing}")
+        print(f"[ERROR] Missing files: {missing}")
         return
     
     print("✅ All required files found\n")
@@ -166,7 +170,7 @@ def main():
             
     except KeyboardInterrupt:
         print(f"\n{'='*70}")
-        print("🛑 STOPPING ALL PROCESSES...".center(70))
+        print("[STOP] STOPPING ALL PROCESSES...".center(70))
         print(f"{'='*70}\n")
         
         stop_event.set()

@@ -1,15 +1,15 @@
-# auth_api.py
-# Authentication API with Login, Forgot Password, OTP, and Password Reset
-# Default user credentials are in .env file (not visible in code)
+# login_forgetPass.py
+# Authentication API - Forgot Password & OTP for ADMINS
 
 import os
 import random
 import hashlib
 import smtplib
+import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
-from click import confirm
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
@@ -19,21 +19,35 @@ import uvicorn
 
 load_dotenv()
 
-# MongoDB connection
+# MongoDB Connection
+
 MongoDB_Url = os.getenv("DB_URI")
 client = MongoClient(MongoDB_Url)
 db = client['Raihan']
-users_collection = db['users']
+admins_collection = db['admins']
 otp_collection = db['otp_codes']
 
 # Email Configuration (Gmail SMTP)
+
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
-# FastAPI app
-app = FastAPI(title="Authentication API")
+# Lifespan
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("=" * 50)
+    print("✅ Authentication API Started")
+    print(f"📧 Email configured: {EMAIL_ADDRESS is not None and EMAIL_PASSWORD is not None}")
+    print("=" * 50)
+    yield
+    print("🛑 Authentication API Stopped")
+
+# FastAPI App
+
+app = FastAPI(title="Authentication API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,17 +59,6 @@ app.add_middleware(
 
 # Pydantic Models
 
-# class UserRegister(BaseModel):
-#     email: EmailStr
-#     password: str
-#     name: str
-
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-
 class ForgotPassword(BaseModel):
     email: EmailStr
 
@@ -66,29 +69,17 @@ class VerifyOTP(BaseModel):
 
 
 class ResetPassword(BaseModel):
-   # email: EmailStr
-    otp: str
+    email: EmailStr
     new_password: str
     confirm_password: str
-
-
-class ChangePassword(BaseModel):
-    email: EmailStr
-    old_password: str
-    new_password: str
 
 # Helper Functions
 
 def hash_password(password: str) -> str:
     """Hash a password using SHA256 with salt"""
-    salt = os.getenv("PASSWORD_SALT", "default_secret_salt_2026")
+    salt = os.getenv("PASSWORD_SALT", "admin_secret_salt_2026")
     salted_password = password + salt
     return hashlib.sha256(salted_password.encode()).hexdigest()
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against hash"""
-    return hash_password(plain_password) == hashed_password
 
 
 def generate_otp() -> str:
@@ -96,199 +87,276 @@ def generate_otp() -> str:
     return str(random.randint(100000, 999999))
 
 
+def find_admin_by_email(email: str):
+    """Find admin by email (case-insensitive)"""
+    admin = admins_collection.find_one({"email": email})
+    if admin:
+        return admin
+    
+    admin = admins_collection.find_one({"email": email.lower()})
+    if admin:
+        return admin
+    
+    admin = admins_collection.find_one({
+        "email": {"$regex": f"^{email}$", "$options": "i"}
+    })
+    return admin
+
+
 def send_otp_email(to_email: str, otp: str) -> bool:
-    """Send OTP via email"""
-    if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
-        print(f"⚠️ Email not configured. OTP for {to_email}: {otp}")
-        return True
+    """
+    Send OTP via email using Gmail SMTP
+    
+    Requirements:
+    1. Set EMAIL_ADDRESS in .env (your Gmail)
+    2. Set EMAIL_PASSWORD in .env (Gmail App Password - 16 characters)
+    
+    To get App Password:
+    1. Go to https://myaccount.google.com/security
+    2. Enable 2-Step Verification
+    3. Go to https://myaccount.google.com/apppasswords
+    4. Generate new App Password
+    5. Copy the 16-character password (remove spaces)
+    """
+    
+    print("\n" + "=" * 50)
+    print("📧 SENDING OTP EMAIL")
+    print("=" * 50)
+    print(f"To: {to_email}")
+    print(f"OTP: {otp}")
+    print(f"From: {EMAIL_ADDRESS}")
+    print(f"Password configured: {'Yes' if EMAIL_PASSWORD else 'No'}")
+    
+    # Check if email credentials are configured
+    if not EMAIL_ADDRESS:
+        print("❌ ERROR: EMAIL_ADDRESS not set in .env")
+        print("=" * 50 + "\n")
+        return False
+    
+    if not EMAIL_PASSWORD:
+        print("❌ ERROR: EMAIL_PASSWORD not set in .env")
+        print("=" * 50 + "\n")
+        return False
     
     try:
-        message = MIMEMultipart()
+        # Create email message
+        message = MIMEMultipart("alternative")
         message["From"] = EMAIL_ADDRESS
         message["To"] = to_email
-        message["Subject"] = "Password Reset OTP"
+        message["Subject"] = "Password Reset OTP Code"
         
-        body = f"""
-        <html>
-        <body>
-            <h2>Password Reset Request</h2>
-            <p>Your OTP code is:</p>
-            <h1 style="color: #4CAF50; font-size: 36px;">{otp}</h1>
-            <p>This code will expire in <strong>10 minutes</strong>.</p>
-            <p>If you didn't request this, please ignore this email.</p>
-        </body>
-        </html>
+        # Plain text version
+        text_body = f"""
+Password Reset Request
+
+Your OTP code is: {otp}
+
+This code will expire in 10 minutes.
+
+If you didn't request this, please ignore this email.
         """
         
-        message.attach(MIMEText(body, "html"))
+        # HTML version
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }}
+        .container {{
+            max-width: 500px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }}
+        .otp-box {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 36px;
+            font-weight: bold;
+            text-align: center;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            letter-spacing: 8px;
+        }}
+        .info {{
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+            margin: 10px 0;
+        }}
+        .warning {{
+            color: #e74c3c;
+            font-size: 12px;
+            text-align: center;
+            margin-top: 20px;
+            padding: 10px;
+            background: #ffeaea;
+            border-radius: 5px;
+        }}
+        .footer {{
+            text-align: center;
+            color: #999;
+            font-size: 11px;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 class="header">🔐 Password Reset Request</h2>
         
+        <p class="info">You requested to reset your password.</p>
+        <p class="info">Use the OTP code below:</p>
+        
+        <div class="otp-box">{otp}</div>
+        
+        <p class="info">This code will expire in <strong>10 minutes</strong>.</p>
+        
+        <div class="warning">
+            ⚠️ If you didn't request this password reset, please ignore this email.
+            Your password will remain unchanged.
+        </div>
+        
+        <div class="footer">
+            This is an automated message. Please do not reply to this email.
+        </div>
+    </div>
+</body>
+</html>
+        """
+        
+        # Attach both plain text and HTML versions
+        part1 = MIMEText(text_body, "plain")
+        part2 = MIMEText(html_body, "html")
+        message.attach(part1)
+        message.attach(part2)
+        
+        # Connect to Gmail SMTP server and send email
+        print("📤 Connecting to Gmail SMTP server...")
+        
+        # Create SSL context
+        context = ssl.create_default_context()
+        
+        # Connect and send
         with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
-            server.starttls()
+            server.ehlo()
+            server.starttls(context=context)
+            server.ehlo()
+            
+            print("🔑 Logging in to Gmail...")
             server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            
+            print("📨 Sending email...")
             server.sendmail(EMAIL_ADDRESS, to_email, message.as_string())
         
+        print("✅ OTP EMAIL SENT SUCCESSFULLY!")
+        print("=" * 50 + "\n")
         return True
+        
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"❌ SMTP Authentication Error: {e}")
+        print("💡 Make sure you're using Gmail App Password, not regular password!")
+        print("💡 Go to: https://myaccount.google.com/apppasswords")
+        print("=" * 50 + "\n")
+        return False
+        
+    except smtplib.SMTPRecipientsRefused as e:
+        print(f"❌ Recipient Refused: {e}")
+        print("💡 Check if the recipient email address is valid")
+        print("=" * 50 + "\n")
+        return False
+        
+    except smtplib.SMTPException as e:
+        print(f"❌ SMTP Error: {e}")
+        print("=" * 50 + "\n")
+        return False
+        
     except Exception as e:
-        print(f"Email Error: {e}")
-        print(f"⚠️ OTP for {to_email}: {otp}")
-        return True
+        print(f"❌ Error: {e}")
+        print("=" * 50 + "\n")
+        return False
 
-
-def create_default_user():
-    """Create default admin user from .env if not exists"""
-    default_email = os.getenv("DEFAULT_ADMIN_EMAIL")
-    default_password = os.getenv("DEFAULT_ADMIN_PASSWORD")
-    default_name = os.getenv("DEFAULT_ADMIN_NAME", "Admin")
-    
-    # Skip if no default credentials in .env
-    if not default_email or not default_password:
-        print("ℹ️ No default admin credentials in .env - skipping")
-        return
-    
-    # Check if already exists
-    existing_user = users_collection.find_one({"email": default_email})
-    
-    if not existing_user:
-        hashed_password = hash_password(default_password)
-        
-        default_user = {
-            "email": default_email,
-            "password": hashed_password,
-            "name": default_name,
-            "is_admin": True,
-            "created_at": datetime.now(),
-            "updated_at": datetime.now()
-        }
-        
-        users_collection.insert_one(default_user)
-        print(f"✅ Default admin user created")
-    else:
-        print(f"✅ Default admin user exists")
 
 # API Endpoints
 
 @app.get("/")
 def root():
-    """Root endpoint - API information"""
     return {
-        "message": "Authentication API",
-        "endpoints": {
-            "POST /api/register": "Register new user",
-            "POST /api/login": "Login user",
-            "POST /api/forgot-password": "Send OTP to email",
-            "POST /api/verify-otp": "Verify OTP code",
-            "POST /api/reset-password": "Reset password with OTP",
-            "POST /api/change-password": "Change password (when logged in)",
-            "GET /api/users": "Get all users"
+        "message": "Authentication API (Admin Forgot Password)",
+        "email_configured": EMAIL_ADDRESS is not None and EMAIL_PASSWORD is not None,
+        "flow": {
+            "1": "POST /api/forgot-password → Send OTP to admin email",
+            "2": "POST /api/verify-otp → Verify OTP code",
+            "3": "POST /api/reset-password → Set new password",
+            "4": "Go to /api/admins/login → Login with new password"
         }
     }
 
 
-# @app.post("/api/register")
-# def register_user(user: UserRegister):
-#     """Register a new user"""
-#     try:
-#         existing_user = users_collection.find_one({"email": user.email})
-#         if existing_user:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail="Email already registered"
-#             )
-        
-#         hashed_password = hash_password(user.password)
-        
-#         new_user = {
-#             "email": user.email,
-#             "password": hashed_password,
-#             "name": user.name,
-#             "is_admin": False,
-#             "created_at": datetime.now(),
-#             "updated_at": datetime.now()
-#         }
-        
-#         users_collection.insert_one(new_user)
-        
-#         return {
-#             "success": True,
-#             "message": "User registered successfully",
-#             "user": {
-#                 "email": user.email,
-#                 "name": user.name
-#             }
-#         }
-        
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Error: {e}")
-
-
-@app.post("/api/login")
-def login_user(user: UserLogin):
-    """Login user with email and password"""
-    try:
-        db_user = users_collection.find_one({"email": user.email})
-        
-        if not db_user:
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid email or password"
-            )
-        
-        if not verify_password(user.password, db_user["password"]):
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid email or password"
-            )
-        
-        return {
-            "success": True,
-            "message": "Login successful",
-            "user": {
-                "email": db_user["email"],
-                "name": db_user["name"]
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {e}")
-
-
 @app.post("/api/forgot-password")
 def forgot_password(data: ForgotPassword):
-    """Send OTP to user's email for password reset"""
+    """
+    Step 1: Send OTP to admin's email
+    """
     try:
-        db_user = users_collection.find_one({"email": data.email})
+        # Check if admin exists
+        admin = find_admin_by_email(data.email)
         
-        if not db_user:
-            raise HTTPException(
-                status_code=404,
-                detail="Email not found"
-            )
+        if not admin:
+            raise HTTPException(status_code=404, detail="Email not found in admin database")
         
+        # Generate 6-digit OTP
         otp = generate_otp()
         
+        # Store OTP in database
         otp_data = {
-            "email": data.email,
+            "email": data.email.lower(),
             "otp": otp,
             "created_at": datetime.now(),
             "expires_at": datetime.now() + timedelta(minutes=10),
             "used": False
         }
         
-        otp_collection.delete_many({"email": data.email})
+        # Delete old OTPs for this email
+        otp_collection.delete_many({"email": data.email.lower()})
+        
+        # Insert new OTP
         otp_collection.insert_one(otp_data)
         
-        send_otp_email(data.email, otp)
+        # Send OTP via email
+        email_sent = send_otp_email(data.email, otp)
         
-        return {
-            "success": True,
-            "message": "OTP sent to your email",
-            "email": data.email,
-            "otp_for_testing": otp  # Remove this in production!
-        }
+        if email_sent:
+            return {
+                "success": True,
+                "message": "OTP sent to your email",
+                "email": data.email,
+                "expires_in": "10 minutes"
+            }
+        else:
+            return {
+                "success": True,
+                "message": "OTP generated but email failed. Check console for OTP.",
+                "email": data.email,
+                "expires_in": "10 minutes",
+                "otp_for_testing": otp  # Only show if email failed
+            }
         
     except HTTPException:
         raise
@@ -298,25 +366,23 @@ def forgot_password(data: ForgotPassword):
 
 @app.post("/api/verify-otp")
 def verify_otp(data: VerifyOTP):
-    """Verify OTP code"""
+    """
+    Step 2: Verify OTP code
+    """
     try:
+        # Find OTP record
         otp_record = otp_collection.find_one({
-            "email": data.email,
+            "email": data.email.lower(),
             "otp": data.otp,
             "used": False
         })
         
         if not otp_record:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid OTP"
-            )
+            raise HTTPException(status_code=400, detail="Invalid OTP")
         
+        # Check if OTP expired
         if datetime.now() > otp_record["expires_at"]:
-            raise HTTPException(
-                status_code=400,
-                detail="OTP expired. Please request a new one."
-            )
+            raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
         
         return {
             "success": True,
@@ -332,42 +398,40 @@ def verify_otp(data: VerifyOTP):
 
 @app.post("/api/reset-password")
 def reset_password(data: ResetPassword):
-    """Reset password with OTP verification"""
+    """
+    Step 3: Reset password
+    - User enters email, new_password, confirm_password
+    - System checks if OTP was verified for this email
+    - Updates password in admins collection
+    """
     try:
         # Check if passwords match
         if data.new_password != data.confirm_password:
-            raise HTTPException(
-                status_code=400,
-                detail="Passwords do not match"
-            )
+            raise HTTPException(status_code=400, detail="Passwords do not match")
         
-        # Find OTP record (get email from OTP)
+        # Check password length
+        if len(data.new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        
+        # Find OTP record for this email (must be verified but not used)
         otp_record = otp_collection.find_one({
-            "otp": data.otp,
+            "email": data.email.lower(),
             "used": False
         })
         
         if not otp_record:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid OTP"
-            )
+            raise HTTPException(status_code=400, detail="Please verify OTP first")
         
+        # Check if OTP expired
         if datetime.now() > otp_record["expires_at"]:
-            raise HTTPException(
-                status_code=400,
-                detail="OTP expired. Please request a new one."
-            )
-        
-        # Get email from OTP record
-        email = otp_record["email"]
+            raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
         
         # Hash new password
         hashed_password = hash_password(data.new_password)
         
-        # Update user's password
-        result = users_collection.update_one(
-            {"email": email},
+        # Update admin's password
+        result = admins_collection.update_one(
+            {"email": data.email.lower()},
             {
                 "$set": {
                     "password": hashed_password,
@@ -377,10 +441,7 @@ def reset_password(data: ResetPassword):
         )
         
         if result.modified_count == 0:
-            raise HTTPException(
-                status_code=404,
-                detail="User not found"
-            )
+            raise HTTPException(status_code=404, detail="Admin not found")
         
         # Mark OTP as used
         otp_collection.update_one(
@@ -390,7 +451,8 @@ def reset_password(data: ResetPassword):
         
         return {
             "success": True,
-            "message": "Password reset successful. You can now login with your new password."
+            "message": "Password reset successful. Please login with your new password.",
+            "email": data.email
         }
         
     except HTTPException:
@@ -399,127 +461,35 @@ def reset_password(data: ResetPassword):
         raise HTTPException(status_code=500, detail=f"Error: {e}")
 
 
-@app.post("/api/change-password")
-def change_password(data: ChangePassword):
-    """Change password when user knows old password"""
-    try:
-        db_user = users_collection.find_one({"email": data.email})
-        
-        if not db_user:
-            raise HTTPException(
-                status_code=404,
-                detail="User not found"
-            )
-        
-        if not verify_password(data.old_password, db_user["password"]):
-            raise HTTPException(
-                status_code=401,
-                detail="Old password is incorrect"
-            )
-        
-        hashed_password = hash_password(data.new_password)
-        
-        users_collection.update_one(
-            {"email": data.email},
-            {
-                "$set": {
-                    "password": hashed_password,
-                    "updated_at": datetime.now()
-                }
-            }
-        )
-        
-        return {
-            "success": True,
-            "message": "Password changed successfully"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {e}")
-
-
-@app.get("/api/users")
-def get_all_users():
-    """Get all registered users"""
-    try:
-        users = list(users_collection.find({}, {"password": 0}))
-        
-        result = []
-        for user in users:
-            result.append({
-                "email": user.get("email"),
-                "name": user.get("name"),
-                "created_at": user.get("created_at"),
-                "updated_at": user.get("updated_at")
-            })
-        
-        return {
-            "total_users": len(result),
-            "users": result
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {e}")
-
-
-@app.delete("/api/users/{email}")
-def delete_user(email: str):
-    """Delete a user by email"""
-    try:
-        default_email = os.getenv("DEFAULT_ADMIN_EMAIL")
-        if email == default_email:
-            raise HTTPException(
-                status_code=403,
-                detail="Cannot delete default admin user"
-            )
-        
-        result = users_collection.delete_one({"email": email})
-        
-        if result.deleted_count == 0:
-            raise HTTPException(
-                status_code=404,
-                detail="User not found"
-            )
-        
-        otp_collection.delete_many({"email": email})
-        
-        return {
-            "success": True,
-            "message": f"User {email} deleted successfully"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {e}")
-
-# Startup Event
-@app.on_event("startup")
-def startup_event():
-    """Run on startup"""
-    create_default_user()
-
-
+# Run Server
 if __name__ == "__main__":
+    print("\n" + "=" * 60)
+    print("AUTHENTICATION API (ADMIN FORGOT PASSWORD)".center(60))
     print("=" * 60)
-    print("AUTHENTICATION API SERVER".center(60))
-    print("=" * 60)
-    print("\nAPI Endpoints:")
-    print("  POST   /api/register        - Register new user")
-    print("  POST   /api/login           - Login user")
-    print("  POST   /api/forgot-password - Send OTP to email")
-    print("  POST   /api/verify-otp      - Verify OTP code")
-    print("  POST   /api/reset-password  - Reset password with OTP")
-    print("  POST   /api/change-password - Change password")
-    print("  GET    /api/users           - Get all users")
-    print("  DELETE /api/users/{email}   - Delete a user")
-    print("=" * 60)
-    print("\nServer running at: http://10.10.20.111:8087")
-    print("API Documentation: http://10.10.20.111:8087/docs")
-    print("=" * 60 + "\n")
     
-    create_default_user()
+    print("\n📧 Email Configuration:")
+    print(f"   EMAIL_ADDRESS: {EMAIL_ADDRESS or 'NOT SET ❌'}")
+    print(f"   EMAIL_PASSWORD: {'SET ✅' if EMAIL_PASSWORD else 'NOT SET ❌'}")
+    
+    if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
+        print("\n⚠️  WARNING: Email not configured!")
+        print("   OTP will be printed in console instead of sending email.")
+        print("\n   To configure email:")
+        print("   1. Go to https://myaccount.google.com/apppasswords")
+        print("   2. Generate App Password")
+        print("   3. Add to .env:")
+        print("      EMAIL_ADDRESS=your_gmail@gmail.com")
+        print("      EMAIL_PASSWORD=abcdefghijklmnop")
+    
+    print("\n📋 Password Reset Flow:")
+    print("   1. POST /api/forgot-password → Send OTP to email")
+    print("   2. POST /api/verify-otp      → Verify OTP")
+    print("   3. POST /api/reset-password  → Set new password")
+    print("   4. POST /api/admins/login    → Login")
+    
+    print("\n" + "=" * 60)
+    print("Server: http://10.10.20.111:8087")
+    print("Docs:   http://10.10.20.111:8087/docs")
+    print("=" * 60 + "\n")
     
     uvicorn.run(app, host="10.10.20.111", port=8087, reload=True)

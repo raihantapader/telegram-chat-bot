@@ -1,3 +1,6 @@
+# test_api_final_2.py
+# Conversation Management API
+
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +36,83 @@ def get_latest_test_id():
     except Exception as e:
         print(f"[DB] Error: {e}")
         return "default"
+
+
+def calculate_average_response_time(conversation_id: str):
+    """Calculate average response time between customer and salesperson messages"""
+    try:
+        all_messages = list(collection.find(
+            {"conversation_id": conversation_id}
+        ).sort("timestamp", 1))
+        
+        if len(all_messages) < 2:
+            return "N/A"
+        
+        response_times = []
+        
+        for i in range(len(all_messages) - 1):
+            current_msg = all_messages[i]
+            next_msg = all_messages[i + 1]
+            
+            if current_msg.get("role") != next_msg.get("role"):
+                time_diff = next_msg["timestamp"] - current_msg["timestamp"]
+                response_time_seconds = time_diff.total_seconds()
+                if response_time_seconds > 0:
+                    response_times.append(response_time_seconds)
+        
+        if not response_times:
+            return "N/A"
+        
+        avg_response_time = sum(response_times) / len(response_times)
+        
+        if avg_response_time < 60:
+            return f"{avg_response_time:.1f} sec"
+        elif avg_response_time < 3600:
+            return f"{avg_response_time / 60:.1f} min"
+        else:
+            return f"{avg_response_time / 3600:.1f} hr"
+            
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return "N/A"
+
+
+def extract_score_number(score_str):
+    """
+    Extract numeric score from string like '50/100', '43.2/100'
+    Returns float for sorting (higher = better)
+    """
+    if score_str == "N/A" or score_str is None:
+        return 0
+    
+    try:
+        # Handle format like "50/100" or "43.2/100"
+        if "/" in str(score_str):
+            score_part = str(score_str).split("/")[0]
+            return float(score_part)
+        else:
+            return float(score_str)
+    except (ValueError, TypeError):
+        return 0
+
+
+def extract_score_number(score_str):
+    """
+    Extract numeric score from string like '50/100', '43.2/100'
+    Returns float for sorting (higher = better)
+    """
+    if score_str == "N/A" or score_str is None:
+        return 0
+    
+    try:
+        # Handle format like "50/100" or "43.2/100"
+        if "/" in str(score_str):
+            score_part = str(score_str).split("/")[0]
+            return float(score_part)
+        else:
+            return float(score_str)
+    except (ValueError, TypeError):
+        return 0
 
 
 # FastAPI app
@@ -140,6 +220,7 @@ def get_room_conversation(room_id: int, conversation_id: str):
 def get_all_conversations():
     """
     GET method to fetch all conversations with evaluation scores.
+    Sorted by score (highest first)
     """
     try:
         evaluated_tests = list(scores_collection.find({}))
@@ -177,10 +258,14 @@ def get_all_conversations():
             
             avg_response_time = calculate_average_response_time(test_id)
             
+            score_display = eval_record.get("score", "N/A")
+            score_numeric = extract_score_number(score_display)
+            
             conversations.append({
                 "test_id": test_id,
                 "response_time": avg_response_time,
-                "score": eval_record.get("score", "N/A"),
+                "score": score_display,
+                "score_numeric": score_numeric,  # For sorting
                 "english_level": eval_record.get("english_level", "N/A"),
                 "level_description": eval_record.get("assessment", "N/A"),
                 "total_messages": total_messages,
@@ -191,49 +276,17 @@ def get_all_conversations():
                 "end_time": last_msg["timestamp"] if last_msg else None
             })
         
+        # Sort by score (highest first)
+        conversations.sort(key=lambda x: x["score_numeric"], reverse=True)
+        
+        # Remove score_numeric from response
+        for conv in conversations:
+            del conv["score_numeric"]
+        
         return {"total_conversations": len(conversations), "conversations": conversations}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {e}")
-
-
-def calculate_average_response_time(conversation_id: str):
-    """Calculate average response time between customer and salesperson messages"""
-    try:
-        all_messages = list(collection.find(
-            {"conversation_id": conversation_id}
-        ).sort("timestamp", 1))
-        
-        if len(all_messages) < 2:
-            return "N/A"
-        
-        response_times = []
-        
-        for i in range(len(all_messages) - 1):
-            current_msg = all_messages[i]
-            next_msg = all_messages[i + 1]
-            
-            if current_msg.get("role") != next_msg.get("role"):
-                time_diff = next_msg["timestamp"] - current_msg["timestamp"]
-                response_time_seconds = time_diff.total_seconds()
-                if response_time_seconds > 0:
-                    response_times.append(response_time_seconds)
-        
-        if not response_times:
-            return "N/A"
-        
-        avg_response_time = sum(response_times) / len(response_times)
-        
-        if avg_response_time < 60:
-            return f"{avg_response_time:.1f} sec"
-        elif avg_response_time < 3600:
-            return f"{avg_response_time / 60:.1f} min"
-        else:
-            return f"{avg_response_time / 3600:.1f} hr"
-            
-    except Exception as e:
-        print(f"[ERROR] {e}")
-        return "N/A"
 
 
 @app.get("/api/stats")
@@ -288,26 +341,17 @@ def get_all_conversation_stats():
             
             result_data = scores_collection.find_one({"test_id": test_id})
             
-            score = 0  # Default to 0 for sorting
             score_display = "N/A"
             english_level = "N/A"
             level_description = "N/A"
             
             if result_data:
-                score_value = result_data.get("score", "N/A")
-                # Handle score for sorting
-                if score_value != "N/A":
-                    try:
-                        score = float(score_value)
-                        score_display = score_value
-                    except (ValueError, TypeError):
-                        score = 0
-                        score_display = score_value
-                else:
-                    score_display = "N/A"
-                
+                score_display = result_data.get("score", "N/A")
                 english_level = result_data.get("english_level", "N/A")
                 level_description = result_data.get("assessment", "N/A")
+            
+            # Extract numeric score for sorting
+            score_numeric = extract_score_number(score_display)
             
             response_time = calculate_average_response_time(test_id)
             
@@ -318,7 +362,7 @@ def get_all_conversation_stats():
                 "salesperson_messages": salesperson_messages,
                 "duration": duration_str,
                 "score": score_display,
-                "score_numeric": score,  # For sorting
+                "score_numeric": score_numeric,  # For sorting
                 "english_level": english_level,
                 "level_description": level_description,
                 "response_time": response_time,
@@ -390,8 +434,8 @@ if __name__ == "__main__":
     print("  GET    /                                  - Root")
     print("  GET    /api/latest_test_id                - Get current active test_id")
     print("  GET    /api/{room_id}/{conversation_id}   - Get room conversation")
-    print("  GET    /api/conversations                 - Get all conversations")
-    print("  GET    /api/stats                         - Get all conversation stats")
+    print("  GET    /api/conversations                 - Get all conversations (sorted by score)")
+    print("  GET    /api/stats                         - Get all stats (sorted by score)")
     print("  DELETE /api/test/{test_id}                - Delete a test by test_id")
     print("="*70)
     print("\nServer running at: http://10.10.20.111:8086")
