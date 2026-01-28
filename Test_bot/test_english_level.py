@@ -25,9 +25,8 @@ scores_collection = db['evaluation_scores']  # Collection to store evaluation sc
 test_collection = db['active_test_ids']  # Collection for active test ids
 
 # OpenAI setup
-OPENAI_API_KEY = os.getenv("My_OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("aluraagency_OPEPNAI_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
-
 
 SYSTEM_PROMPT = """
 You are **Dr. Sarah Chen**, PhD in Applied Linguistics with 20+ years specializing in:
